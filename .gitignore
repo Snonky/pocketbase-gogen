@@ -8,3 +8,4 @@ generator/db_test/test_pb_data/storage
 *.db-wal
 *.txt
 .vscode
+Makefile
