@@ -44,9 +44,14 @@ var expectedAllTypesCollectionStruct = `type AllFieldTypes struct {
 	email          string
 	url            string
 	date           types.DateTime
-	// select: SingleSelectSelectType(optionA, optionB, optionC)
+	// select: SingleSelectSelectType
+	// - optionA
+	// - optionB
+	// - optionC
 	singleSelect int
-	// select: MultiSelectSelectType(optionD, optionE)
+	// select: MultiSelectSelectType
+	// - optionD
+	// - optionE
 	multiSelect    []int
 	json           string
 	singleRelation *AllFieldTypes
@@ -63,7 +68,9 @@ var expectedReservedGoNameCollectionStruct = `type WithReservedGoNames struct {
 	func_   string
 	type_   string
 	struct_ string
-	// select: VarSelectType(var_, struct_)
+	// select: VarSelectType
+	// - var
+	// - struct
 	var_    int
 	created types.DateTime
 	updated types.DateTime

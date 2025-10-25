@@ -38,7 +38,9 @@ func (p *Minimal) SetValue(value string) {
 
 func TestSingleSelectTypeField(t *testing.T) {
 	template := `type HasSelect struct {
-	// select: Enum(opt1, opt2)
+	// select: Enum
+	// - opt1
+	// - opt2
 	value int
 }
 `
@@ -91,7 +93,9 @@ func (p *HasSelect) SetValue(value Enum) {
 
 func TestMultiSelectTypeField(t *testing.T) {
 	template := `type HasSelect struct {
-	// select: Enum(opt1, opt2)
+	// select: Enum
+	// - opt1
+	// - opt2
 	value []int
 }
 `
@@ -395,7 +399,9 @@ func (p *Name) SetImport(import_ string) {
 
 func TestRenamedSelectOptions(t *testing.T) {
 	template := `type Name struct {
-	// select: SelectTypeName(optA)[RenameA]
+	// select: SelectTypeName
+	// - optA
+	// > RenameA
 	select1 int
 }
 `
@@ -440,9 +446,11 @@ func (p *Name) SetSelect1(select1 SelectTypeName) {
 
 func TestDuplicateSelectTypeNames(t *testing.T) {
 	template := `type Name struct {
-	// select: SameName(optA)
+	// select: SameName
+	// - optA
 	select1 int
-	// select: SameName(optB)
+	// select: SameName
+	// - optB
 	select2 int
 }
 `
@@ -511,9 +519,11 @@ func (p *Name) SetSelect2(select2 SameName2) {
 
 func TestIdenticalSelectTypes(t *testing.T) {
 	template := `type Name struct {
-	// select: SameName(sameName)
+	// select: SameName
+	// - sameName
 	select1 int
-	// select: SameName(sameName)
+	// select: SameName
+	// - sameName
 	select2 int
 }
 `
@@ -590,7 +600,9 @@ func TestUnknownType(t *testing.T) {
 func TestIllegalSelectFieldType(t *testing.T) {
 	// Only int or []int is allowed for select types
 	template := `type Name struct {
-		// select: IllegalSelect(optA, optB)
+		// select: IllegalSelect
+		// - optA
+		// - optB
 		illegal string
 	}
 	`
@@ -617,7 +629,9 @@ func TestUncommentedSystemField(t *testing.T) {
 
 func TestMalformedSelectComment(t *testing.T) {
 	template := `type Name struct {
-	// select: (optA, optB)
+	// select:
+	// - optA
+	// - optB
 	selectVar int
 }
 `
@@ -628,7 +642,7 @@ func TestMalformedSelectComment(t *testing.T) {
 	}
 
 	template = `type Name struct {
-		// select: SelectTypeName()
+		// select: SelectTypeName
 		selectVar int
 }
 `
@@ -639,7 +653,73 @@ func TestMalformedSelectComment(t *testing.T) {
 	}
 
 	template = `type Name struct {
-		// select: SelectTypeName(optA, optB)[nameA, nameB, nameC]
+		// select: SelectTypeName
+		// one more line
+		selectVar int
+}
+`
+	template = addBoilerplate(template)
+	_, err = NewTemplateParser([]byte(template))
+	if err == nil {
+		t.Fatal("the malformed select comment did not cause the generation to error")
+	}
+
+	template = `type Name struct {
+		// select: SelectTypeName
+		// - optA
+		// - optB
+		// > renameA
+		// > renameB
+		selectVar int
+}
+`
+	template = addBoilerplate(template)
+	_, err = NewTemplateParser([]byte(template))
+	if err == nil {
+		t.Fatal("the malformed select comment did not cause the generation to error")
+	}
+
+	template = `type Name struct {
+		// select: SelectTypeName
+		// - optA
+		// - 
+		selectVar int
+}
+`
+	template = addBoilerplate(template)
+	_, err = NewTemplateParser([]byte(template))
+	if err == nil {
+		t.Fatal("the malformed select comment did not cause the generation to error")
+	}
+
+	template = `type Name struct {
+		// select: SelectTypeName
+		// > aliasToNothing
+		// - optA
+		selectVar int
+}
+`
+	template = addBoilerplate(template)
+	_, err = NewTemplateParser([]byte(template))
+	if err == nil {
+		t.Fatal("the malformed select comment did not cause the generation to error")
+	}
+
+	template = `type Name struct {
+		// select: SelectTypeName
+		// - invalid-go-identifier
+		selectVar int
+}
+`
+	template = addBoilerplate(template)
+	_, err = NewTemplateParser([]byte(template))
+	if err == nil {
+		t.Fatal("the malformed select comment did not cause the generation to error")
+	}
+
+	template = `type Name struct {
+		// select: SelectTypeName
+		// - func
 		selectVar int
 }
 `
@@ -675,7 +755,9 @@ func TestIllegalMultiNameFields(t *testing.T) {
 	}
 
 	template = `type Name struct {
-		// select: SelectTypeName(a, b)
+		// select: SelectTypeName
+		// - a
+		// - b
 		name1, name2 int
 }
 `
@@ -701,9 +783,11 @@ func TestIllegalMultiNameFields(t *testing.T) {
 
 func TestDuplicateSelectOption(t *testing.T) {
 	template := `type Name struct {
-	// select: SelectTypeName2(sameName)
+	// select: SelectTypeName2
+	// - sameName
 	select1 int
-	// select: SelectTypeName1(sameName)
+	// select: SelectTypeName1
+	// - sameName
 	select2 int
 }
 `

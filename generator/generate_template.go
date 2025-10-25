@@ -185,12 +185,14 @@ func (t *SchemaTranslator) goType(field core.Field) ast.Expr {
 
 func createFieldDoc(field core.Field) (*ast.CommentGroup, error) {
 	comments := make([]*ast.Comment, 0, 1)
-	selectComment, err := createSelectTypeComment(field)
+	selectCommentGroup, err := createSelectTypeComment(field)
 	if err != nil {
 		return nil, err
 	}
-	if selectComment != nil {
-		comments = append(comments, selectComment)
+	if selectCommentGroup != nil {
+		for _, selectComment := range selectCommentGroup.List {
+			comments = append(comments, selectComment)
+		}
 	}
 	if systemComment := createSystemFieldComment(field); systemComment != nil {
 		comments = append(comments, systemComment)
@@ -199,7 +201,7 @@ func createFieldDoc(field core.Field) (*ast.CommentGroup, error) {
 	return doc, nil
 }
 
-func createSelectTypeComment(field core.Field) (*ast.Comment, error) {
+func createSelectTypeComment(field core.Field) (*ast.CommentGroup, error) {
 	selectField, ok := field.(*core.SelectField)
 	if !ok {
 		return nil, nil
@@ -209,23 +211,21 @@ func createSelectTypeComment(field core.Field) (*ast.Comment, error) {
 
 	var sb strings.Builder
 
+	comments := make([]*ast.Comment, 0, 1+len(selectOptions))
+
 	sb.WriteString(selectTypeComment)
 	sb.WriteString(" ")
 	sb.WriteString(selectTypeName)
-	sb.WriteString("(")
-	for i, o := range selectOptions {
-		o, err := validateIdentifier(o)
-		if err != nil {
-			return nil, err
-		}
+	comments = append(comments, &ast.Comment{Text: sb.String()})
+	sb.Reset()
+	for _, o := range selectOptions {
+		sb.WriteString("// - ")
 		sb.WriteString(o)
-		if i < len(selectOptions)-1 {
-			sb.WriteString(", ")
-		}
+		comments = append(comments, &ast.Comment{Text: sb.String()})
+		sb.Reset()
 	}
-	sb.WriteString(")")
 
-	comment := &ast.Comment{Text: sb.String()}
+	comment := &ast.CommentGroup{List: comments}
 	return comment, nil
 }
 
@@ -271,9 +271,13 @@ func newInfoComment() *ast.CommentGroup {
 			{Text: "//  - Remove structs or fields that you don't want in the generated code. Note that upon removing a struct"},
 			{Text: "//    you also have to remove any fields that have that struct as their type."},
 			{Text: "//  - Edit the type name in the '// select:' comments."},
-			{Text: "//  - Change the const names of the select options by adding a pair of [] to the // select: comment."},
-			{Text: "//    Example: // select: MySelectType(optionA, optionB)[OpA, OpB] <-- These constants will represent"},
-			{Text: "//    the select options (like an enum). If you omit the [] the option names are used directly."},
+			{Text: "//  - Change the const names of the select options by adding alias lines (// >) to the select options list."},
+			{Text: "//    Example:"},
+			{Text: "//    // select: MySelectType"},
+			{Text: "//    // - optionA"},
+			{Text: "//    // > aliasA"},
+			{Text: "//    // - v2.0"},
+			{Text: "//    // > v2_0"},
 			{Text: "//  - Edit the field names. If you do, the generator still needs to know the original database field name."},
 			{Text: "//    To provide this, add a '// schema-name: [original field name]' comment directly above the field."},
 			{Text: "//  - Add methods to the template structs. The generator will replace any fields you access with the also"},

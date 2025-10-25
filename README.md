@@ -71,7 +71,10 @@ type Person struct {
 	Id      string
 	name    string
 	address string
-	// select: HealthSelectType(good, medium, bad)
+	// select: HealthSelectType
+	// - good
+	// - medium
+	// - bad
 	health   int
 	account  *BankAccount
 	children []*Child
@@ -81,7 +84,7 @@ type Person struct {
 Things to note about the template:
 
  - The `Id` field is marked as a system field and thus will not have getters/setters generated.
- - The `health` field is a PocketBase select type field which is always represented as an `int` (or `[]int` for multi select types) in the template. The field comment marks this fact.
+ - The `health` field is a PocketBase select type field which is always represented as an `int` (or `[]int` for multi select types) in the template. The field comment lists the select options.
  - The relation type fields `account` and `children` are already typed with the other template structs.
  - All template structs have a `// collection-name:` comment on their first field that stores the original collection name.
 

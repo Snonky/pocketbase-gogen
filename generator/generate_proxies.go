@@ -12,9 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/iancoleman/strcase"
 	"github.com/snonky/astpos/astpos"
-	"golang.org/x/tools/go/ast/astutil"
 )
 
 var (
@@ -331,24 +329,82 @@ func (p *Parser) parseSelectTypeComment(field *ast.Field) (string, []string, []s
 		return "", nil, nil, nil
 	}
 
-	comment := ""
+	var selectTypeName string
 	var astComment *ast.Comment
-	for _, c := range field.Doc.List {
-		if len(c.Text) >= len(selectTypeComment) && c.Text[:len(selectTypeComment)] == selectTypeComment {
-			comment = c.Text
+	commentIndex := -1
+	for i, c := range field.Doc.List {
+		if name, found := strings.CutPrefix(c.Text, selectTypeComment); found {
+			selectTypeName = strings.TrimSpace(name)
 			astComment = c
+			commentIndex = i
 			break
 		}
 	}
-	if comment == "" {
+	if commentIndex == -1 {
 		return "", nil, nil, nil
 	}
+	if selectTypeName == "" {
+		pos := p.Fset.Position(astComment.Slash)
+		err := p.createError("The // select: comment is missing the select type name. The name goes after the colon e.g. // select: TypeName", pos, nil)
+		return "", nil, nil, err
+	}
+	if commentIndex == len(field.Doc.List)-1 {
+		pos := p.Fset.Position(astComment.Slash)
+		err := p.createError("The // select: comment is missing its option list. There has to be at least one line like '// - optionName' directly following the select comment.", pos, nil)
+		return "", nil, nil, err
+	}
 
-	typeName, err := nodeString(baseType(field.Type))
+	selectOptionCommentList := field.Doc.List[commentIndex+1:]
+
+	optionNames := make([]string, 0)
+	optionVarNames := make([]string, 0)
+	lastIsVarName := false
+	lastOptionOrVarName := ""
+	for i, c := range selectOptionCommentList {
+		optionOrVarName, isVarName, err := p.parseSelectOptionOrVarName(c, i, lastIsVarName)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if optionOrVarName == "" {
+			break
+		}
+		if isVarName {
+			optionVarNames = append(optionVarNames, optionOrVarName)
+		} else {
+			optionNames = append(optionNames, optionOrVarName)
+		}
+		if !isVarName && !lastIsVarName && lastOptionOrVarName != "" {
+			optionVarNames = append(optionVarNames, lastOptionOrVarName)
+		}
+
+		lastOptionOrVarName = optionOrVarName
+		lastIsVarName = isVarName
+	}
+	if !lastIsVarName {
+		optionVarNames = append(optionVarNames, lastOptionOrVarName)
+	}
+
+	if len(optionNames) == 0 {
+		pos := p.Fset.Position(astComment.Slash)
+		err := p.createError("The // select: comment is missing its option list. There has to be at least one line like '// - optionName' directly following the select comment.", pos, nil)
+		return "", nil, nil, err
+	}
+
+	for i, optionVarName := range optionVarNames {
+		if err := validateIdentifier(optionVarName); err != nil {
+			pos := p.Fset.Position(astComment.Slash)
+			errMsg := fmt.Sprintf("Encountered select option name `%v` which can not be used as a go identifier.\nAlias the option name by adding a comment line starting with '// >' under the invalid option name. For example:\n// - invalid-name\n// > valid_alias", optionVarName)
+			err = p.createError(errMsg, pos, nil)
+			return "", nil, nil, err
+		}
+		optionVarNames[i] = firstToUpper(optionVarName)
+	}
+
+	fieldTypeName, err := nodeString(baseType(field.Type))
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if typeName != "int" {
+	if fieldTypeName != "int" {
 		pos := p.Fset.Position(astComment.Slash)
 		err = p.createError("Cannot have // select: comment on field of type other than int or []int", pos, nil)
 		return "", nil, nil, err
@@ -361,110 +417,42 @@ func (p *Parser) parseSelectTypeComment(field *ast.Field) (string, []string, []s
 		return "", nil, nil, err
 	}
 
-	comment = strings.TrimSpace(comment[len(selectTypeComment):])
+	selectTypeName, optionNames, optionVarNames = p.validateSelectType(astComment.Slash, selectTypeName, optionNames, optionVarNames)
 
-	typeName, selectOptions, selectVarNames, err := p.parseSelectType(astComment.Slash, comment)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	typeName, selectOptions, selectVarNames = p.validateSelectType(astComment.Slash, typeName, selectOptions, selectVarNames)
-
-	return typeName, selectOptions, selectVarNames, nil
+	return selectTypeName, optionNames, optionVarNames, nil
 }
 
-// Parses a string of the form 'TypeName(option1, option2, ...)' or
-// 'TypeName(option1, option2, ...)[VarName1, VarName2, ...]
-// Returns the [TypeName], the [option1, option1, ...] list and the [VarName1, VarName2, ...] list.
-// If the var name list is omitted the option names are reused as the var names.
-func (p *Parser) parseSelectType(commentPos token.Pos, typeStr string) (string, []string, []string, error) {
-	parsed, err := parser.ParseExpr(typeStr)
-	if err != nil {
-		parserErr := err.(scanner.ErrorList)[0]
-		pos := p.Fset.Position(commentPos)
-		return "", nil, nil, p.createError(parserErr.Msg, pos, parserErr)
+func (p *Parser) parseSelectOptionOrVarName(
+	comment *ast.Comment,
+	commentLineIndex int,
+	previousIsVarName bool,
+) (optionOrVarName string, isVarName bool, err error) {
+	isNameOrAlias := false
+	if option, found := strings.CutPrefix(comment.Text, "// -"); found {
+		isVarName = false
+		isNameOrAlias = true
+		optionOrVarName = strings.TrimSpace(option)
+	} else if varName, found := strings.CutPrefix(comment.Text, "// >"); found {
+		isVarName = true
+		isNameOrAlias = true
+		optionOrVarName = strings.TrimSpace(varName)
 	}
 
-	withVarNames, err := p.checkBrackets(commentPos, parsed)
-	if err != nil {
-		return "", nil, nil, err
+	if !isNameOrAlias {
+		return "", false, nil
+	}
+	if optionOrVarName == "" {
+		pos := p.Fset.Position(comment.Slash)
+		err = p.createError("Malformed // select: comment. Found an empty name or alias in the select options list.", pos, nil)
+		return "", false, err
+	}
+	if isVarName && (previousIsVarName || commentLineIndex == 0) {
+		pos := p.Fset.Position(comment.Slash)
+		err = p.createError("Malformed // select: comment. An alias (// >) has to have an option name (// -) in the previous line.", pos, nil)
+		return "", false, err
 	}
 
-	typeName := ""
-	selectOptions := make([]string, 0, 8)
-	selectVarNames := make([]string, 0, 8)
-	identFinder := func(c *astutil.Cursor) bool {
-		ident, ok := c.Node().(*ast.Ident)
-		if !ok {
-			return true
-		}
-		switch c.Name() {
-		case "Fun":
-			typeName = ident.Name
-		case "Args":
-			selectOption, _ := trimUnderscore(ident.Name)
-			selectOptions = append(selectOptions, selectOption)
-			if !withVarNames {
-				varName := strcase.ToCamel(ident.Name)
-				selectVarNames = append(selectVarNames, varName)
-			}
-		case "Index":
-			fallthrough
-		case "Indices":
-			varName := strcase.ToCamel(ident.Name)
-			selectVarNames = append(selectVarNames, varName)
-		}
-		return true
-	}
-	astutil.Apply(parsed, identFinder, nil)
-
-	if typeName == "" || len(selectOptions) == 0 {
-		pos := p.Fset.Position(commentPos)
-		err = p.createError("Malformed // select: comment. Example usage: // select: TypeName(option1, option2)[VarName1, VarName2]", pos, nil)
-		if err != nil {
-			return "", nil, nil, err
-		}
-	}
-
-	if len(selectOptions) != len(selectVarNames) {
-		pos := p.Fset.Position(commentPos)
-		errMsg := fmt.Sprintf(
-			"Unequal number of select options and variable names in // select: comment. Found %v options and %v names",
-			len(selectOptions),
-			len(selectVarNames),
-		)
-		err = p.createError(errMsg, pos, nil)
-		return "", nil, nil, err
-	}
-
-	return typeName, selectOptions, selectVarNames, nil
-}
-
-// Checks if the // select: comment only has () or also includes []
-// Errors if neither are found. Returns true when the [] are present.
-func (p *Parser) checkBrackets(commentPos token.Pos, parsedComment ast.Node) (bool, error) {
-	var indexExpr ast.Expr
-	var callExpr ast.Expr
-
-	switch n := parsedComment.(type) {
-	case *ast.IndexExpr:
-		indexExpr = n
-		callExpr = n.X
-	case *ast.IndexListExpr:
-		indexExpr = n
-		callExpr = n.X
-	case *ast.CallExpr:
-		callExpr = n
-	}
-
-	withVarNames := indexExpr != nil
-	withOpts := callExpr != nil
-	if !withVarNames && !withOpts {
-		pos := p.Fset.Position(commentPos)
-		err := p.createError("Malformed // select: comment. Example usage: // select: TypeName(option1, option2)[VarName1, VarName2]", pos, nil)
-		return false, err
-	}
-
-	return withVarNames, nil
+	return optionOrVarName, isVarName, nil
 }
 
 func (p *Parser) validateSelectType(commentPos token.Pos, typeName string, selectOptions, selectVarNames []string) (string, []string, []string) {

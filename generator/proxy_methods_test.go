@@ -625,9 +625,14 @@ var testTemplateStructs = `type StructName struct {
 
 type OtherStruct struct {
 	intField int
-	// select: SelectType(opt1, opt2, opt3)
+	// select: SelectType
+	// - opt1
+	// - opt2
+	// - opt3
 	multiSelectField []int
-	// select: Enum(optA, optB)
+	// select: Enum
+	// - optA
+	// - optB
 	selectField int
 	other		*StructName
 }

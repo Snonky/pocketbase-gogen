@@ -9,6 +9,8 @@ import (
 	"go/parser"
 	"go/token"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/iancoleman/strcase"
 	"golang.org/x/tools/imports"
@@ -40,7 +42,7 @@ func nodeString(n ast.Node) (string, error) {
 }
 
 func toIdentifier(s string) (*ast.Ident, error) {
-	validated, err := validateIdentifier(s)
+	validated, err := validateOrFixIdentifier(s)
 	if err != nil {
 		return nil, err
 	}
@@ -51,22 +53,30 @@ func toIdentifier(s string) (*ast.Ident, error) {
 // as an identifier in go source code.
 // If not, it appends a '_' and checks again.
 // Errors if the string is still not valid.
-func validateIdentifier(s string) (string, error) {
+func validateOrFixIdentifier(s string) (string, error) {
 	origS := s
-	parsed, err := parser.ParseExpr(s)
-	_, ok := parsed.(*ast.Ident)
+	err := validateIdentifier(s)
 	// This check fails e.g. when the field name is a reserved go keyword
-	if err != nil || !ok {
+	if err != nil {
 		s += "_" // Add a _ to circumvent the reservation
-		parsed, err = parser.ParseExpr(s)
-		_, ok = parsed.(*ast.Ident)
+		err = validateIdentifier(s)
 	}
-	if err != nil || !ok {
-		errMsg := fmt.Sprintf("Error: Encoutered `%v`, which can not be used as a go identifier", origS)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error: Encountered `%v`, which can not be used as a go identifier", origS)
 		return "", errors.New(errMsg)
 	}
 
 	return s, nil
+}
+
+func validateIdentifier(s string) error {
+	parsed, err := parser.ParseExpr(s)
+	_, ok := parsed.(*ast.Ident)
+	if err != nil || !ok {
+		errMsg := fmt.Sprintf("Error: Encountered `%v`, which can not be used as a go identifier", s)
+		return errors.New(errMsg)
+	}
+	return nil
 }
 
 // Returns true if the given string can be used as a package name
@@ -85,4 +95,16 @@ func getterName(varName string) string {
 func setterName(varName string) string {
 	setterName := "Set" + strcase.ToCamel(varName)
 	return setterName
+}
+
+func firstToUpper(s string) string {
+	firstRune, size := utf8.DecodeRuneInString(s)
+	if firstRune == utf8.RuneError && size <= 1 {
+		return s
+	}
+	upperRune := unicode.ToUpper(firstRune)
+	if firstRune == upperRune {
+		return s
+	}
+	return string(upperRune) + s[size:]
 }
